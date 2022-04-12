@@ -52,7 +52,7 @@ type GameTime struct{
 // Based on these 3 keys it builds the Leaderboard (SessionScore[]) -> SessionScore(SessionId, Nickname, Time, AccumulatedScore, AccumulatedTimeInSeconds, LastLevel)
 //  It does this, by getting all the game KEYS `game-*`, then for each Key it gets the GameSession and create a SessionScore for each session.
 //  Once it has the session it needs to iterate with an LRANGE the `score-game-<UUID>` key for each session to calculate the accumulated score and which was the last level played
-//  Then it proceed to iterate with an LRANGE the `time-game-<UUID>` key for each session to calculate the accumulated time in seconds
+//  Then it proceeds to iterate with an LRANGE the `time-game-<UUID>` key for each session to calculate the accumulated time in seconds
 
 // Handle an HTTP Request.
 func Handle(ctx context.Context, res http.ResponseWriter, req *http.Request) {
