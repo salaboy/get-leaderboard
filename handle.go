@@ -11,8 +11,6 @@ import (
 	"time"
 )
 
-var redisHost = os.Getenv("REDIS_HOST")
-
 type SessionScore struct{
 	SessionId string
 	Nickname string
@@ -54,14 +52,17 @@ type GameTime struct{
 //  Once it has the session it needs to iterate with an LRANGE the `score-game-<UUID>` key for each session to calculate the accumulated score and which was the last level played
 //  Then it proceeds to iterate with an LRANGE the `time-game-<UUID>` key for each session to calculate the accumulated time in seconds
 
+var redisHost = os.Getenv("REDIS_HOST")// This should include the port which is most of the time 6379
+var redisPassword = os.Getenv("REDIS_PASSWORD")
+
 // Handle an HTTP Request.
 func Handle(ctx context.Context, res http.ResponseWriter, req *http.Request) {
 
 	var lead Leaderboard
 
 	client := redis.NewClient(&redis.Options{
-		Addr:     redisHost + ":6379",
-		Password: "",
+		Addr:     redisHost,
+		Password: redisPassword,
 		DB:       0,
 	})
 

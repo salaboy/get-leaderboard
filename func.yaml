@@ -4,7 +4,7 @@ namespace: ""
 runtime: go
 registry: ""
 image: docker.io/salaboy/get-leaderboard:latest
-imageDigest: sha256:cb0cdee37cdb7715248ce6373e3db46559604269225affcc9dc7afaa9a3c5833
+imageDigest: sha256:810a903c9febcb46d0a3f1b6c1b10d38a278fa6d6d6e5c02450fe0e0381282f7
 build: local
 git:
   url: null
@@ -20,7 +20,9 @@ buildpacks:
 - ghcr.io/boson-project/go-function-buildpack:tip
 volumes: []
 buildEnvs: []
-envs: []
+envs:
+- name: REDIS_HOST
+  value: 10.200.130.188:6379
 annotations: {}
 options: {}
 labels: []
