@@ -8,16 +8,18 @@ import (
 	"net/http"
 	"os"
 	"sort"
-	"time"
 )
 
 type SessionScore struct{
 	SessionId string
 	Nickname string
 	AccumulatedScore int
-	AccumulatedTimeInSeconds int64
-	Time time.Time
 	LastLevel string
+	Selected bool
+}
+
+type Leaderboard struct{
+	Sessions []SessionScore
 }
 
 type GameSession struct{
@@ -25,24 +27,14 @@ type GameSession struct{
 	Player string
 }
 
-type Leaderboard struct{
-	Sessions []SessionScore
-}
 
-type Score struct {
+
+type GameScore struct {
 	SessionId string
-	Time time.Time
 	Level string
 	LevelScore int
 }
 
-type GameTime struct{
-	GameTimeId string
-	SessionId string
-	Level string
-	Type string
-	Time      time.Time
-}
 // This function expects 3 kind of keys stored in redis:
 // - `game-<UUID>` keys map to GameSession (SessionId, Player)
 // - `score-game-<UUID>` keys map to Score (SessionId, Time, Level, LevelScore)
@@ -59,6 +51,13 @@ var redisPassword = os.Getenv("REDIS_PASSWORD")
 func Handle(ctx context.Context, res http.ResponseWriter, req *http.Request) {
 
 	var lead Leaderboard
+	var nicknameFilter bool
+	var frozenLeaderboardDetected bool
+	nickname, _ := req.URL.Query()["nickname"]
+	if len(nickname) == 1 {
+		nicknameFilter = true
+	}
+
 
 	client := redis.NewClient(&redis.Options{
 		Addr:     redisHost,
@@ -66,93 +65,85 @@ func Handle(ctx context.Context, res http.ResponseWriter, req *http.Request) {
 		DB:       0,
 	})
 
-	// First get all the game sessions `game-` using keys, then get the game session
-	// -> Then per session key Lrange each `score-game-` and accumulate score
-	// -> Then per session key Lrange each `time-game-` and accumulate time
-
-	gameSessions, err := client.Keys("game-*").Result()
-	for _, session := range gameSessions {
-		var s SessionScore
-
-		var gs GameSession
-		gameSession, err := client.Get(session).Result()
-		if err != nil {
-			http.Error(res, err.Error(), http.StatusBadRequest)
-			return
-		}
-		err = json.Unmarshal([]byte(gameSession), &gs)
-		if err != nil {
-			http.Error(res, err.Error(), http.StatusBadRequest)
-			return
-		}
-		sessionScores, err := client.LRange("score-"+session, 0, -1).Result()
-		if err != nil {
-			http.Error(res, err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		var score Score
-		var accumulatedScore = 0
-		var lastActiveTime time.Time
-		var lastLevel string
-		for _, scoreJson := range sessionScores {
-			err := json.Unmarshal([]byte(scoreJson), &score)
-			if err != nil {
-				http.Error(res, err.Error(), http.StatusBadRequest)
-				return
-			}
-			accumulatedScore += score.LevelScore
-			lastActiveTime = score.Time
-			lastLevel = score.Level
-
-		}
-
-		var accumulatedTimeInSeconds int64
-		sessionTimes, err := client.LRange("time-"+session, 0, -1).Result()
-		if err != nil {
-			http.Error(res, err.Error(), http.StatusBadRequest)
-			return
-		}
-		var gt GameTime
-		var tempTime time.Time
-		var currentLevel string
-		for _, timeJson := range sessionTimes {
-			err := json.Unmarshal([]byte(timeJson), &gt)
-			if err != nil {
-				http.Error(res, err.Error(), http.StatusBadRequest)
-				return
-			}
-
-			if gt.Type == "start" {
-				tempTime = gt.Time
-				currentLevel = gt.Level
-			} else if gt.Type == "end" && currentLevel == gt.Level {
-				accumulatedTimeInSeconds += gt.Time.UnixMilli() - tempTime.UnixMilli()
-			}
-		}
-		s.SessionId = session
-		s.Nickname = gs.Player
-		s.AccumulatedScore = accumulatedScore
-		s.AccumulatedTimeInSeconds = accumulatedTimeInSeconds
-		s.Time = lastActiveTime
-		s.LastLevel = lastLevel
-		lead.Sessions = append(lead.Sessions, s)
-	}
-
-	sort.SliceStable(lead.Sessions, func(i, j int) bool {
-		if lead.Sessions[i].AccumulatedScore == lead.Sessions[j].AccumulatedScore{
-			return lead.Sessions[i].AccumulatedTimeInSeconds < lead.Sessions[j].AccumulatedTimeInSeconds // returns 1 if i is less than j
-		}
-		return lead.Sessions[i].AccumulatedScore > lead.Sessions[j].AccumulatedScore // returns 1 if i is greater than j -> returns 0 if they are the same -> returns -1 if j is greater than i
-	})
-
-	leaderboard, err := json.Marshal(lead)
+	// First check if the leaderboard is frozen
+	frozenLeaderboard, err := client.Get("frozen").Result()
 	if err != nil {
-		http.Error(res, err.Error(), http.StatusBadRequest)
+		frozenLeaderboardDetected = false
+	}
+	if frozenLeaderboard != "" {
+		fmt.Println("Frozen Leaderboard: " + frozenLeaderboard)
+		frozenLeaderboardDetected = true
+		res.Header().Set("Content-Type", "application/json")
+		fmt.Fprintln(res, frozenLeaderboard )
 		return
 	}
 
-	res.Header().Set("Content-Type", "application/json")
-	fmt.Fprintln(res, string(leaderboard) )
+	if !frozenLeaderboardDetected {
+		fmt.Println("Live Leaderboard being calculated!")
+		// First get all the game sessions `game-` using keys, then get the game session
+		// -> Then per session key Lrange each `score-game-` and accumulate score
+		// -> Then per session key Lrange each `time-game-` and accumulate time
+
+		gameSessions, err := client.Keys("game-*").Result()
+		for _, session := range gameSessions {
+			var s SessionScore
+
+			var gs GameSession
+			gameSession, err := client.Get(session).Result()
+			if err != nil {
+				http.Error(res, err.Error(), http.StatusBadRequest)
+				return
+			}
+			err = json.Unmarshal([]byte(gameSession), &gs)
+			if err != nil {
+				http.Error(res, err.Error(), http.StatusBadRequest)
+				return
+			}
+
+			sessionScores, err := client.LRange("score-"+session, 0, -1).Result()
+			if err != nil {
+				http.Error(res, err.Error(), http.StatusBadRequest)
+				return
+			}
+
+			var gameScore GameScore
+			var accumulatedScore = 0
+			var lastLevel string
+			for _, scoreJson := range sessionScores {
+				err := json.Unmarshal([]byte(scoreJson), &gameScore)
+				if err != nil {
+					http.Error(res, err.Error(), http.StatusBadRequest)
+					return
+				}
+				accumulatedScore += gameScore.LevelScore
+				lastLevel = gameScore.Level
+
+			}
+
+			s.SessionId = session
+			s.Nickname = gs.Player
+			s.AccumulatedScore = accumulatedScore
+			s.LastLevel = lastLevel
+			if nicknameFilter {
+				if s.Nickname == nickname[0] {
+					s.Selected = true
+				}
+			}
+			lead.Sessions = append(lead.Sessions, s)
+		}
+
+		sort.SliceStable(lead.Sessions, func(i, j int) bool {
+			return lead.Sessions[i].AccumulatedScore > lead.Sessions[j].AccumulatedScore // returns 1 if i is greater than j -> returns 0 if they are the same -> returns -1 if j is greater than i
+		})
+
+		leaderboard, err := json.Marshal(lead)
+		if err != nil {
+			http.Error(res, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		res.Header().Set("Content-Type", "application/json")
+		fmt.Fprintln(res, string(leaderboard))
+	}
 
 }

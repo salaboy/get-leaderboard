@@ -4,7 +4,7 @@ namespace: ""
 runtime: go
 registry: ""
 image: docker.io/salaboy/get-leaderboard:latest
-imageDigest: sha256:810a903c9febcb46d0a3f1b6c1b10d38a278fa6d6d6e5c02450fe0e0381282f7
+imageDigest: sha256:0b697e22b5b7c033ba74202b6f6b6af5c09614523da6dca4fefa2af3e2776131
 build: local
 git:
   url: null
