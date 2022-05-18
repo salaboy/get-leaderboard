@@ -2,6 +2,7 @@ package function
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"github.com/go-redis/redis"
@@ -46,7 +47,8 @@ type GameScore struct {
 
 var redisHost = os.Getenv("REDIS_HOST")// This should include the port which is most of the time 6379
 var redisPassword = os.Getenv("REDIS_PASSWORD")
-
+var redisTLSEnabled = os.Getenv("REDIS_TLS")
+var redisTLSEnabledFlag = false
 // Handle an HTTP Request.
 func Handle(ctx context.Context, res http.ResponseWriter, req *http.Request) {
 
@@ -58,12 +60,27 @@ func Handle(ctx context.Context, res http.ResponseWriter, req *http.Request) {
 		nicknameFilter = true
 	}
 
+	if redisTLSEnabled != "" && redisTLSEnabled != "false" {
+		redisTLSEnabledFlag = true
+	}
+	var client *redis.Client
 
-	client := redis.NewClient(&redis.Options{
-		Addr:     redisHost,
-		Password: redisPassword,
-		DB:       0,
-	})
+	if !redisTLSEnabledFlag {
+		client = redis.NewClient(&redis.Options{
+			Addr:     redisHost,
+			Password: redisPassword,
+			DB:       0,
+		})
+	} else {
+		client = redis.NewClient(&redis.Options{
+			Addr:     redisHost,
+			Password: redisPassword,
+			DB:       0,
+			TLSConfig: &tls.Config{
+				MinVersion: tls.VersionTLS12,
+			},
+		})
+	}
 
 	// First check if the leaderboard is frozen
 	frozenLeaderboard, err := client.Get("frozen").Result()
